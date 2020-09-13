@@ -1,17 +1,17 @@
-import os
-from six.moves import urllib
-import tarfile
-import pandas as pd
-from matplotlib import pyplot as plt
-import numpy as np
 import hashlib
+import os
+import tarfile
 
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 """
 全局变量命名
 """
 DOWNLOAD_ROOT = "https://raw.githubusercontent.com/ageron/handson-ml/master/"
-HOUSING_PATH = "datasets/housing"
+HOUSING_PATH = "../datasets/housing"
 HOUSING_URL = DOWNLOAD_ROOT + HOUSING_PATH + "/housing.tgz"
+
 
 def fetch_housing_data(housing_url=HOUSING_URL, housing_path=HOUSING_PATH):
     """
@@ -19,7 +19,7 @@ def fetch_housing_data(housing_url=HOUSING_URL, housing_path=HOUSING_PATH):
     """
     if not os.path.isdir(housing_path):
         os.makedirs(housing_path)
-    
+
     tgz_path = os.path.join(housing_path, "housing.tgz")
     # 直接通过代码下载报错，connection refused，通过浏览器直接下载的压缩包
     # urllib.request.urlretrieve(housing_url, tgz_path)
@@ -47,11 +47,15 @@ def split_train_test(data, test_ratio):
     return data.iloc[train_indices], data.iloc[test_indices]
 
 
-# 上面解决方案存在一定问题，如果再次运行会生成不同的数据集，这样下去
-# 机器学习算法将会看到整个数据集，而这是创建测试集过程中需要避免的
+"""
+上述解决方案存在一定问题，如果再次运行会生成不同的数据集，这样下去
+机器学习算法将会看到整个数据集，而这是创建测试集过程中需要避免的
+"""
+
+
 # 解决方案一
 def test_set_check(identifier, test_ratio, hash):
-    # 讲对应的hash值转化为64位二进制并取最后一位
+    # 将对应的hash值转化为64位二进制并取最后一位
     return hash(np.int64(identifier)).digest()[-1] < 256 * test_ratio
 
 
@@ -63,7 +67,8 @@ def split_train_test_by_id(data, test_ratio, id_column, hash=hashlib.md5):
 
 
 # 解决方案二：方案一因为是使用添加新的行号为index列，所以在添加新数据时要确保在末尾添加，并且不会删除任何行
-# 如果不能保证这点，可以使用属性中保证不变的属性作为列，一般来说一个地方的经纬度肯定不会发生变化，但是经纬度对应的精度没有那么精确，很可能好几个区域对应相同的经纬度
+# 如果不能保证这点，可以使用属性中保证不变的属性作为列，一般来说一个地方的经纬度肯定不会发生变化，但是经纬度
+# 对应的精度没有那么精确，很可能好几个区域对应相同的经纬度
 
 
 # 解决方案三：最简便使用scikit-learn中提供的原生函数进行切分，不过与前面的实现方式基本完全相同
@@ -74,9 +79,11 @@ def train_test_split(data):
     return train_set, test_set
 
 
-# 前面的方案都是随机抽样的方式，当数据集足够庞大的时候没有问题，但是如果不是的话会出现明显的抽# 样偏差，采用分层抽样解决，对收入中位数除以1.5来限制收入中位数的类别
+# 前面的方案都是随机抽样的方式，当数据集足够庞大的时候没有问题，但是如果不是的话会出现明显的抽# 样偏差，采用
+# 分层抽样解决，对收入中位数除以1.5来限制收入中位数的类别
 # 使用ceil进行四舍五入，将大于5万的按5万处理
 def income_cat(data):
+    global strat_train_set, strat_test_set
     data["income_cat"] = np.ceil(data["median_income"] / 1.5)
     data["income_cat"].where(data["income_cat"] < 5, 5.0, inplace=True)
 
@@ -84,17 +91,15 @@ def income_cat(data):
     from sklearn.model_selection import StratifiedShuffleSplit
     split = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
     for train_index, test_index in split.split(data, data["income_cat"]):
-        strait_train_set = data.loc[train_index]
-        strait_test_set = data.loc[test_index]
-    
-    return strait_train_set, strait_test_set
+        strat_train_set = data.loc[train_index]
+        strat_test_set = data.loc[test_index]
+
+    return strat_train_set, strat_test_set
 
 
 def drop_income_cat(strait_train_set, strait_test_set):
     for set in (strait_train_set, strait_test_set):
         set.drop(["income_cat"], axis=1, inplace=True)
-    
-
 
 
 if __name__ == "__main__":
@@ -111,10 +116,10 @@ if __name__ == "__main__":
     # 绘制每个数值属性的直方图Histogram，这个有点意思了
     # data.hist(bins=50, figsize=(20, 15))
     # plt.show()
-    
+
     # 方案一：分割训练数据与测试数据
     # train_data, test_data = split_train_test(data, 0.2)
-    
+
     # 方案二：利用hash生成id的方式分割训练数据与测试数据
     """
     需要可以唯一标识数据的id_column
@@ -135,8 +140,20 @@ if __name__ == "__main__":
     # plt.show()
 
     # 方案四：分层抽样
-    # strait_train_set, strait_test_set = income_cat(data)
+    strait_train_set, strait_test_set = income_cat(data)
     # print(strait_train_set.head())
     # print(strait_test_set.head())
-    # drop_income_cat(strait_train_set, strait_test_set)
-    # print(data.head())
+
+    # 数据可视化分析
+    housing_train = strait_train_set.copy()
+    print(len(housing_train))
+    # 数据的地理分布图，设置alpha可以更清楚看到高密度数据点位置
+    housing_train.plot(kind="scatter", x="longitude", y="latitude", alpha=0.1)
+    plt.show()
+    # 查看房价 scatter：分散图，利用名为jet的预定义颜色表进行可视化
+    housing_train.plot(kind="scatter", x="longitude", y="latitude", alpha=0.4,
+                       s=housing_train["population"]/100, label="population",
+                       c="median_house_value", cmap=plt.get_cmap("jet"), colorbar=True)
+    plt.legend()
+    plt.show()
+
