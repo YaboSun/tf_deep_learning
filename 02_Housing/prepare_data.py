@@ -5,6 +5,7 @@ import tarfile
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
 """
 全局变量命名
 """
@@ -13,98 +14,100 @@ HOUSING_PATH = "../datasets/housing"
 HOUSING_URL = DOWNLOAD_ROOT + HOUSING_PATH + "/housing.tgz"
 
 
-def fetch_housing_data(housing_url=HOUSING_URL, housing_path=HOUSING_PATH):
+class PrepareData:
+    def __init__(self):
+        self.housing_data = self.load_housing_data()
+        self.strat_train_set, self.strat_test_set = self.income_cat(self.housing_data)
+
+    def fetch_housing_data(self, housing_url=HOUSING_URL, housing_path=HOUSING_PATH):
+        """
+        通过给定的数据路径将数据下载并保存到本地，首次运行执行
+        """
+        if not os.path.isdir(housing_path):
+            os.makedirs(housing_path)
+
+        tgz_path = os.path.join(housing_path, "housing.tgz")
+        # 直接通过代码下载报错，connection refused，通过浏览器直接下载的压缩包
+        # urllib.request.urlretrieve(housing_url, tgz_path)
+        housing_tgz = tarfile.open(tgz_path)
+        housing_tgz.extractall(path=housing_path)
+        housing_tgz.close()
+
+    def load_housing_data(self, housing_path=HOUSING_PATH):
+        """
+        使用pandas加载数据
+        """
+        housing_csv_path = os.path.join(housing_path, "housing.csv")
+        # 返回一个Pandas DataFrame对象
+        return pd.read_csv(housing_csv_path)
+
+    def split_train_test(self, data, test_ratio):
+        """
+        如果再次运行会生成不同的数据集，这样下去机器学习算法将会看到整个数据集，
+        而这是创建测试集过程中需要避免的
+        """
+        # 按照数据长度生成一个随机index序列，对应的数值为data中的行号
+        shuffled_indices = np.random.permutation(len(data))
+        test_set_size = int(len(data) * test_ratio)
+        test_indices = shuffled_indices[:test_set_size]
+        train_indices = shuffled_indices[test_set_size:]
+        # iloc通过行号来获取数据
+        return data.iloc[train_indices], data.iloc[test_indices]
+
+    # 解决方案一
+    def test_set_check(self, identifier, test_ratio, hash):
+        # 将对应的hash值转化为64位二进制并取最后一位
+        return hash(np.int64(identifier)).digest()[-1] < 256 * test_ratio
+
+    def split_train_test_by_id(self, data, test_ratio, id_column, hash=hashlib.md5):
+        # id_column 即创建的行号
+        ids = data[id_column]
+        in_test_set = ids.apply(lambda id_: test_set_check(id_, test_ratio, hash))
+        return data.loc[~in_test_set], data.loc[in_test_set]
+
     """
-    通过给定的数据路径将数据下载并保存到本地
+    解决方案二：方案一因为是使用添加新的行号为index列，所以在添加新数据时要确保在末尾添加，并且不会删除任何行
+    如果不能保证这点，可以使用属性中保证不变的属性作为列，一般来说一个地方的经纬度肯定不会发生变化，但是经纬度
+    对应的精度没有那么精确，很可能好几个区域对应相同的经纬度
     """
-    if not os.path.isdir(housing_path):
-        os.makedirs(housing_path)
 
-    tgz_path = os.path.join(housing_path, "housing.tgz")
-    # 直接通过代码下载报错，connection refused，通过浏览器直接下载的压缩包
-    # urllib.request.urlretrieve(housing_url, tgz_path)
-    housing_tgz = tarfile.open(tgz_path)
-    housing_tgz.extractall(path=housing_path)
-    housing_tgz.close()
+    # 解决方案三
+    def train_test_split(self, data):
+        """
+        最简便使用scikit-learn中提供的原生函数进行切分，不过与前面的实现方式基本完全相同
+        """
+        from sklearn.model_selection import train_test_split
+        train_set, test_set = train_test_split(data, test_size=0.2, random_state=42)
 
+        return train_set, test_set
 
-def load_housing_data(housing_path=HOUSING_PATH):
     """
-    使用pandas加载数据
+    前面的方案都是随机抽样的方式，当数据集足够庞大的时候没有问题，但是如果不是的话会出现明显的抽# 样偏差，采用
+    分层抽样解决，对收入中位数除以1.5来限制收入中位数的类别,使用ceil进行四舍五入，将大于5万的按5万处理
     """
-    housing_csv_path = os.path.join(housing_path, "housing.csv")
-    # 返回一个Pandas DataFrame对象
-    return pd.read_csv(housing_csv_path)
 
+    def income_cat(self, data):
+        global strat_train_set, strat_test_set
+        data["income_cat"] = np.ceil(data["median_income"] / 1.5)
+        data["income_cat"].where(data["income_cat"] < 5, 5.0, inplace=True)
 
-def split_train_test(data, test_ratio):
-    # 按照数据长度生成一个随机index序列，对应的数值为data中的行号
-    shuffled_indices = np.random.permutation(len(data))
-    test_set_size = int(len(data) * test_ratio)
-    test_indices = shuffled_indices[:test_set_size]
-    train_indices = shuffled_indices[test_set_size:]
-    # iloc通过行号来获取数据
-    return data.iloc[train_indices], data.iloc[test_indices]
+        # 使用sci-kit learn 的Stratified-Shuffle Split类进行分层抽样
+        from sklearn.model_selection import StratifiedShuffleSplit
+        split = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+        for train_index, test_index in split.split(data, data["income_cat"]):
+            strat_train_set = data.loc[train_index]
+            strat_test_set = data.loc[test_index]
 
+        return strat_train_set, strat_test_set
 
-"""
-上述解决方案存在一定问题，如果再次运行会生成不同的数据集，这样下去
-机器学习算法将会看到整个数据集，而这是创建测试集过程中需要避免的
-"""
-
-
-# 解决方案一
-def test_set_check(identifier, test_ratio, hash):
-    # 将对应的hash值转化为64位二进制并取最后一位
-    return hash(np.int64(identifier)).digest()[-1] < 256 * test_ratio
-
-
-def split_train_test_by_id(data, test_ratio, id_column, hash=hashlib.md5):
-    # id_column 即创建的行号
-    ids = data[id_column]
-    in_test_set = ids.apply(lambda id_: test_set_check(id_, test_ratio, hash))
-    return data.loc[~in_test_set], data.loc[in_test_set]
-
-
-# 解决方案二：方案一因为是使用添加新的行号为index列，所以在添加新数据时要确保在末尾添加，并且不会删除任何行
-# 如果不能保证这点，可以使用属性中保证不变的属性作为列，一般来说一个地方的经纬度肯定不会发生变化，但是经纬度
-# 对应的精度没有那么精确，很可能好几个区域对应相同的经纬度
-
-
-# 解决方案三：最简便使用scikit-learn中提供的原生函数进行切分，不过与前面的实现方式基本完全相同
-def train_test_split(data):
-    from sklearn.model_selection import train_test_split
-    train_set, test_set = train_test_split(data, test_size=0.2, random_state=42)
-
-    return train_set, test_set
-
-
-# 前面的方案都是随机抽样的方式，当数据集足够庞大的时候没有问题，但是如果不是的话会出现明显的抽# 样偏差，采用
-# 分层抽样解决，对收入中位数除以1.5来限制收入中位数的类别
-# 使用ceil进行四舍五入，将大于5万的按5万处理
-def income_cat(data):
-    global strat_train_set, strat_test_set
-    data["income_cat"] = np.ceil(data["median_income"] / 1.5)
-    data["income_cat"].where(data["income_cat"] < 5, 5.0, inplace=True)
-
-    # 使用sci-kit learn 的Stratified-Shuffle Split类进行分层抽样
-    from sklearn.model_selection import StratifiedShuffleSplit
-    split = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
-    for train_index, test_index in split.split(data, data["income_cat"]):
-        strat_train_set = data.loc[train_index]
-        strat_test_set = data.loc[test_index]
-
-    return strat_train_set, strat_test_set
-
-
-def drop_income_cat(strait_train_set, strait_test_set):
-    for set in (strait_train_set, strait_test_set):
-        set.drop(["income_cat"], axis=1, inplace=True)
+    def drop_income_cat(self, strait_train_set, strait_test_set):
+        for set in (strait_train_set, strait_test_set):
+            set.drop(["income_cat"], axis=1, inplace=True)
 
 
 if __name__ == "__main__":
-    # fetch_housing_data()
-    data = load_housing_data()
+    prepare_data = PrepareData()
+    data = prepare_data.housing_data
     # head()默认查看前5行，可传入指定行数
     # print(data.head(10))
     # 打印数据全部信息
@@ -140,20 +143,18 @@ if __name__ == "__main__":
     # plt.show()
 
     # 方案四：分层抽样
-    strait_train_set, strait_test_set = income_cat(data)
     # print(strait_train_set.head())
     # print(strait_test_set.head())
 
     # 数据可视化分析
-    housing_train = strait_train_set.copy()
+    housing_train = prepare_data.strat_train_set.copy()
     print(len(housing_train))
     # 数据的地理分布图，设置alpha可以更清楚看到高密度数据点位置
     housing_train.plot(kind="scatter", x="longitude", y="latitude", alpha=0.1)
     plt.show()
     # 查看房价 scatter：分散图，利用名为jet的预定义颜色表进行可视化
     housing_train.plot(kind="scatter", x="longitude", y="latitude", alpha=0.4,
-                       s=housing_train["population"]/100, label="population",
+                       s=housing_train["population"] / 100, label="population",
                        c="median_house_value", cmap=plt.get_cmap("jet"), colorbar=True)
     plt.legend()
     plt.show()
-
