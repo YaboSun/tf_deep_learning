@@ -81,12 +81,11 @@ class PrepareData:
 
         return train_set, test_set
 
-    """
-    前面的方案都是随机抽样的方式，当数据集足够庞大的时候没有问题，但是如果不是的话会出现明显的抽# 样偏差，采用
-    分层抽样解决，对收入中位数除以1.5来限制收入中位数的类别,使用ceil进行四舍五入，将大于5万的按5万处理
-    """
-
     def income_cat(self, data):
+        """
+            前面的方案都是随机抽样的方式，当数据集足够庞大的时候没有问题，但是如果不是的话会出现明显的抽# 样偏差，采用
+            分层抽样解决，对收入中位数除以1.5来限制收入中位数的类别,使用ceil进行四舍五入，将大于5万的按5万处理
+        """
         global strat_train_set, strat_test_set
         data["income_cat"] = np.ceil(data["median_income"] / 1.5)
         data["income_cat"].where(data["income_cat"] < 5, 5.0, inplace=True)
@@ -103,6 +102,33 @@ class PrepareData:
     def drop_income_cat(self, strait_train_set, strait_test_set):
         for set in (strait_train_set, strait_test_set):
             set.drop(["income_cat"], axis=1, inplace=True)
+
+    def find_corr(self):
+        """
+        方法一：使用皮尔逊相关系数寻找相关性
+        """
+        corr_matrix = self.housing_data.corr()
+        print(corr_matrix["median_house_value"].sort_values(ascending=False))
+        """
+        方法二：使用pandas的scatter_matrix函数绘制每个数值属性相对于其他属性的相关性
+        """
+        from pandas.plotting import scatter_matrix
+        attributes = ["median_house_value", "median_income", "total_rooms", "housing_median_age"]
+        scatter_matrix(self.housing_data[attributes], figsize=(12, 8), diagonal="kde")
+        plt.show()
+
+        # 分析上图中最相关的可能是median_income，放大查看对应的散点图
+        self.housing_data.plot(kind="scatter", x="median_income", y="median_house_value", alpha=0.1)
+        plt.show()
+
+        """
+        方法三：试验不同属性组合来分析相关性
+        """
+        self.housing_data["rooms_per_household"] = self.housing_data["total_rooms"] / self.housing_data["households"]
+        self.housing_data["bedrooms_per_house"] = self.housing_data["total_bedrooms"] / self.housing_data["total_rooms"]
+        self.housing_data["population_per_household"] = self.housing_data["population"] / self.housing_data["households"]
+        corr_matrix = self.housing_data.corr()
+        print(corr_matrix["median_house_value"].sort_values(ascending=False))
 
 
 if __name__ == "__main__":
@@ -147,14 +173,18 @@ if __name__ == "__main__":
     # print(strait_test_set.head())
 
     # 数据可视化分析
-    housing_train = prepare_data.strat_train_set.copy()
-    print(len(housing_train))
+    # housing_train = prepare_data.strat_train_set.copy()
+    # print(len(housing_train))
     # 数据的地理分布图，设置alpha可以更清楚看到高密度数据点位置
-    housing_train.plot(kind="scatter", x="longitude", y="latitude", alpha=0.1)
-    plt.show()
+    # housing_train.plot(kind="scatter", x="longitude", y="latitude", alpha=0.1)
+    # plt.show()
+
     # 查看房价 scatter：分散图，利用名为jet的预定义颜色表进行可视化
-    housing_train.plot(kind="scatter", x="longitude", y="latitude", alpha=0.4,
-                       s=housing_train["population"] / 100, label="population",
-                       c="median_house_value", cmap=plt.get_cmap("jet"), colorbar=True)
-    plt.legend()
-    plt.show()
+    # housing_train.plot(kind="scatter", x="longitude", y="latitude", alpha=0.4,
+    #                    s=housing_train["population"] / 100, label="population",
+    #                    c="median_house_value", cmap=plt.get_cmap("jet"), colorbar=True)
+    # plt.legend()
+    # plt.show()
+
+    # 寻找相关性
+    prepare_data.find_corr()
