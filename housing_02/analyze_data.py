@@ -1,10 +1,9 @@
 import hashlib
-import os
-import tarfile
 
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
+
+from housing_02 import data_utils
 
 """
 全局变量命名
@@ -14,32 +13,10 @@ HOUSING_PATH = "../datasets/housing"
 HOUSING_URL = DOWNLOAD_ROOT + HOUSING_PATH + "/housing.tgz"
 
 
-class PrepareData:
+class AnalyzeData:
     def __init__(self):
-        self.housing_data = self.load_housing_data()
+        self.housing_data = data_utils.load_housing_data()
         self.strat_train_set, self.strat_test_set = self.income_cat(self.housing_data)
-
-    def fetch_housing_data(self, housing_url=HOUSING_URL, housing_path=HOUSING_PATH):
-        """
-        通过给定的数据路径将数据下载并保存到本地，首次运行执行
-        """
-        if not os.path.isdir(housing_path):
-            os.makedirs(housing_path)
-
-        tgz_path = os.path.join(housing_path, "housing.tgz")
-        # 直接通过代码下载报错，connection refused，通过浏览器直接下载的压缩包
-        # urllib.request.urlretrieve(housing_url, tgz_path)
-        housing_tgz = tarfile.open(tgz_path)
-        housing_tgz.extractall(path=housing_path)
-        housing_tgz.close()
-
-    def load_housing_data(self, housing_path=HOUSING_PATH):
-        """
-        使用pandas加载数据
-        """
-        housing_csv_path = os.path.join(housing_path, "housing.csv")
-        # 返回一个Pandas DataFrame对象
-        return pd.read_csv(housing_csv_path)
 
     def split_train_test(self, data, test_ratio):
         """
@@ -62,7 +39,7 @@ class PrepareData:
     def split_train_test_by_id(self, data, test_ratio, id_column, hash=hashlib.md5):
         # id_column 即创建的行号
         ids = data[id_column]
-        in_test_set = ids.apply(lambda id_: test_set_check(id_, test_ratio, hash))
+        in_test_set = ids.apply(lambda id_: self.test_set_check(id_, test_ratio, hash))
         return data.loc[~in_test_set], data.loc[in_test_set]
 
     """
@@ -132,7 +109,7 @@ class PrepareData:
 
 
 if __name__ == "__main__":
-    prepare_data = PrepareData()
+    prepare_data = AnalyzeData()
     data = prepare_data.housing_data
     # head()默认查看前5行，可传入指定行数
     # print(data.head(10))
